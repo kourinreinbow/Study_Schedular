@@ -2,5 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "study-schedular",
   "main": "src/index.js",
-  "compatibility_date": "2026-08-08"
+  "compatibility_date": "2026-08-08",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "study-schedular-db",
+      "database_id": "ここにD1のdatabase_id"
+    }
+  ]
 }
