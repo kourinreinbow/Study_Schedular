@@ -5,7 +5,7 @@ export default {
     if (url.pathname === "/api/test" && request.method === "GET") {
       return Response.json({
         success: true,
-        message: "Hello from my Study Plan API!",
+        message: "Hello from Study Plan API!",
         timestamp: new Date().toISOString()
       });
     }
