@@ -19,6 +19,43 @@ export default {
     }
 
     try {
+
+      // =========================
+      // GET /db_show
+      // D1データベース確認用
+      // =========================
+      if (
+        request.method === "GET" &&
+        url.pathname === "/db_show"
+      ) {
+        // study_plansを取得
+        const plans = await env.DB.prepare(`
+          SELECT *
+          FROM study_plans
+          ORDER BY study_date DESC
+        `).all();
+
+        // study_tasksを取得
+        const tasks = await env.DB.prepare(`
+          SELECT *
+          FROM study_tasks
+          ORDER BY plan_id, sort_order
+        `).all();
+
+        return Response.json(
+          {
+            success: true,
+            database: "connected",
+            study_plans: plans.results,
+            study_tasks: tasks.results
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+
       // =========================
       // POST /study-plan
       // 勉強計画を登録
@@ -87,6 +124,7 @@ export default {
         );
       }
 
+
       // =========================
       // GET /study-plan
       // 勉強計画を全件取得
@@ -111,6 +149,7 @@ export default {
           }
         );
       }
+
 
       // =========================
       // GET /study-plan/:date
@@ -168,6 +207,7 @@ export default {
         );
       }
 
+
       // =========================
       // PATCH /study-task/:id
       // タスクの完了状態を変更
@@ -200,6 +240,7 @@ export default {
           }
         );
       }
+
 
       // =========================
       // 404
