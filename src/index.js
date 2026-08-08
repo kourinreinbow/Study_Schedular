@@ -31,7 +31,7 @@ export default {
         const plans = await env.DB.prepare(`
           SELECT *
           FROM study_plans
-          ORDER BY study_date DESC
+          ORDER BY study_date DESC, id DESC
         `).all();
 
         const tasks = await env.DB.prepare(`
@@ -56,7 +56,8 @@ export default {
 
       // =======================================================
       // GET /study-plan/add
-      // GETパラメータから学習計画を登録
+      //
+      // 既存方式との互換性を維持
       //
       // 例:
       //
@@ -70,130 +71,81 @@ export default {
       // &task2=Part5
       // &task2_description=文法問題
       // &task2_minutes=30
+      //
+      // 同じstudy_dateが存在する場合は更新
       // =======================================================
       if (
         request.method === "GET" &&
         url.pathname === "/study-plan/add"
       ) {
 
-        const studyDate =
-          url.searchParams.get("study_date");
+        const data = {
+          study_date:
+            url.searchParams.get("study_date"),
 
-        const title =
-          url.searchParams.get("title");
+          title:
+            url.searchParams.get("title"),
 
-        const description =
-          url.searchParams.get("description");
+          description:
+            url.searchParams.get("description"),
 
-        // 必須項目
-        if (!studyDate || !title) {
-          return Response.json(
-            {
-              success: false,
-              message: "study_date and title are required"
-            },
-            {
-              status: 400,
-              headers: corsHeaders
-            }
-          );
-        }
+          tasks: []
+        };
+
 
         // -----------------------------------------------------
-        // 学習計画を登録
-        // -----------------------------------------------------
-        const planResult = await env.DB.prepare(`
-          INSERT INTO study_plans (
-            study_date,
-            title,
-            description
-          )
-          VALUES (?, ?, ?)
-        `)
-          .bind(
-            studyDate,
-            title,
-            description ?? null
-          )
-          .run();
-
-        const planId =
-          planResult.meta.last_row_id;
-
-        // -----------------------------------------------------
-        // タスク登録
         // task1, task2, task3...
         // -----------------------------------------------------
-        let taskCount = 0;
-
         for (let i = 1; i <= 100; i++) {
 
           const taskTitle =
             url.searchParams.get(`task${i}`);
 
-          // 連番が途切れたら終了
           if (!taskTitle) {
             break;
           }
 
-          const taskDescription =
-            url.searchParams.get(
-              `task${i}_description`
-            );
+          data.tasks.push({
+            title: taskTitle,
 
-          const taskMinutes =
-            url.searchParams.get(
-              `task${i}_minutes`
-            );
+            description:
+              url.searchParams.get(
+                `task${i}_description`
+              ),
 
-          await env.DB.prepare(`
-            INSERT INTO study_tasks (
-              plan_id,
-              title,
-              description,
-              minutes,
-              completed,
-              sort_order
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-          `)
-            .bind(
-              planId,
-              taskTitle,
-              taskDescription ?? null,
-              taskMinutes
-                ? Number(taskMinutes)
-                : null,
-              0,
-              i
-            )
-            .run();
-
-          taskCount++;
+            minutes:
+              url.searchParams.get(
+                `task${i}_minutes`
+              )
+                ? Number(
+                    url.searchParams.get(
+                      `task${i}_minutes`
+                    )
+                  )
+                : null
+          });
         }
 
-        return Response.json(
-          {
-            success: true,
-            message: "Study plan saved!",
-            plan_id: planId,
-            task_count: taskCount
-          },
-          {
-            headers: corsHeaders
-          }
+
+        return await saveStudyPlan(
+          env.DB,
+          data,
+          corsHeaders
         );
       }
 
 
       // =======================================================
       // POST /study-plan
-      // JSONから学習計画を登録
+      //
+      // ChatGPTからの正式な登録用API
+      //
+      // JSON:
       //
       // {
-      //   "study_date": "2026-08-09",
+      //   "study_date": "2026-08-10",
       //   "title": "TOEIC",
-      //   "description": "今日の勉強",
+      //   "description": "...",
       //   "tasks": [
       //     {
       //       "title": "英単語",
@@ -211,90 +163,10 @@ export default {
         const data =
           await request.json();
 
-        if (
-          !data.study_date ||
-          !data.title
-        ) {
-          return Response.json(
-            {
-              success: false,
-              message:
-                "study_date and title are required"
-            },
-            {
-              status: 400,
-              headers: corsHeaders
-            }
-          );
-        }
-
-        // -----------------------------------------------------
-        // 学習計画登録
-        // -----------------------------------------------------
-        const planResult = await env.DB.prepare(`
-          INSERT INTO study_plans (
-            study_date,
-            title,
-            description
-          )
-          VALUES (?, ?, ?)
-        `)
-          .bind(
-            data.study_date,
-            data.title,
-            data.description ?? null
-          )
-          .run();
-
-        const planId =
-          planResult.meta.last_row_id;
-
-        // -----------------------------------------------------
-        // タスク登録
-        // -----------------------------------------------------
-        if (Array.isArray(data.tasks)) {
-
-          for (
-            let i = 0;
-            i < data.tasks.length;
-            i++
-          ) {
-
-            const task =
-              data.tasks[i];
-
-            await env.DB.prepare(`
-              INSERT INTO study_tasks (
-                plan_id,
-                title,
-                description,
-                minutes,
-                completed,
-                sort_order
-              )
-              VALUES (?, ?, ?, ?, ?, ?)
-            `)
-              .bind(
-                planId,
-                task.title,
-                task.description ?? null,
-                task.minutes ?? null,
-                0,
-                i + 1
-              )
-              .run();
-          }
-        }
-
-        return Response.json(
-          {
-            success: true,
-            message: "Study plan saved!",
-            plan_id: planId
-          },
-          {
-            headers: corsHeaders
-          }
+        return await saveStudyPlan(
+          env.DB,
+          data,
+          corsHeaders
         );
       }
 
@@ -312,7 +184,7 @@ export default {
           await env.DB.prepare(`
             SELECT *
             FROM study_plans
-            ORDER BY study_date DESC
+            ORDER BY study_date DESC, id DESC
           `).all();
 
         return Response.json(
@@ -391,7 +263,8 @@ export default {
 
       // =======================================================
       // PATCH /study-task/:id
-      // タスク完了状態を変更
+      //
+      // チェック状態を変更
       // =======================================================
       if (
         request.method === "PATCH" &&
@@ -452,68 +325,43 @@ export default {
 
       // =======================================================
       // GET /checklist
-      // 今日の学習チェック表
+      //
+      // 最新の学習計画をチェック表として表示
+      //
+      // 重要:
+      // 「今日の日付」ではなく、
+      // DBに登録された最新のstudy_dateを使用する。
+      //
+      // そのため、
+      //
+      // 8/9 デイリーブリーフィング
+      //      ↓
+      // 8/9の計画
+      //
+      // 8/10 デイリーブリーフィング
+      //      ↓
+      // 8/10の計画
+      //
+      // と自動的に切り替わる。
       // =======================================================
       if (
         request.method === "GET" &&
         url.pathname === "/checklist"
       ) {
 
-        // -----------------------------------------------------
-        // 日本時間で今日の日付を取得
-        // -----------------------------------------------------
-        const parts =
-          new Intl.DateTimeFormat(
-            "ja-JP",
-            {
-              timeZone: "Asia/Tokyo",
-              year: "numeric",
-              month: "2-digit",
-              day: "2-digit"
-            }
-          ).formatToParts(new Date());
-
-        const year =
-          parts.find(
-            x => x.type === "year"
-          ).value;
-
-        const month =
-          parts.find(
-            x => x.type === "month"
-          ).value;
-
-        const day =
-          parts.find(
-            x => x.type === "day"
-          ).value;
-
-        const studyDate =
-          `${year}-${month}-${day}`;
-
-
-        // -----------------------------------------------------
-        // 今日の学習計画
-        // -----------------------------------------------------
         const plan =
           await env.DB.prepare(`
             SELECT *
             FROM study_plans
-            WHERE study_date = ?
-            ORDER BY id DESC
+            ORDER BY study_date DESC, id DESC
             LIMIT 1
           `)
-            .bind(studyDate)
             .first();
 
-
-        // -----------------------------------------------------
-        // 今日の計画が存在しない
-        // -----------------------------------------------------
         if (!plan) {
 
           return new Response(
-            createNoPlanHtml(studyDate),
+            createNoPlanHtml(),
             {
               headers: {
                 "Content-Type":
@@ -523,124 +371,56 @@ export default {
           );
         }
 
+        return await createChecklistResponse(
+          env.DB,
+          plan
+        );
+      }
 
-        // -----------------------------------------------------
-        // タスク取得
-        // -----------------------------------------------------
-        const tasks =
+
+      // =======================================================
+      // GET /checklist/:date
+      //
+      // 指定日のチェック表
+      //
+      // 例:
+      // /checklist/2026-08-09
+      // =======================================================
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/checklist/")
+      ) {
+
+        const date =
+          url.pathname.split("/")[2];
+
+        const plan =
           await env.DB.prepare(`
             SELECT *
-            FROM study_tasks
-            WHERE plan_id = ?
-            ORDER BY sort_order
+            FROM study_plans
+            WHERE study_date = ?
+            ORDER BY id DESC
+            LIMIT 1
           `)
-            .bind(plan.id)
-            .all();
+            .bind(date)
+            .first();
 
-        const taskResults =
-          tasks.results;
+        if (!plan) {
 
-
-        // -----------------------------------------------------
-        // タスクHTML
-        // -----------------------------------------------------
-        const taskList =
-          taskResults
-            .map(task => {
-
-              const checked =
-                task.completed
-                  ? "checked"
-                  : "";
-
-              const completedClass =
-                task.completed
-                  ? "completed"
-                  : "";
-
-              const minutes =
-                task.minutes != null
-                  ? `<span class="minutes">
-                       ${task.minutes}分
-                     </span>`
-                  : "";
-
-              const description =
-                task.description
-                  ? `<div class="task-description">
-                       ${escapeHtml(
-                         task.description
-                       )}
-                     </div>`
-                  : "";
-
-              return `
-                <div class="task">
-
-                  <label class="task-main">
-
-                    <input
-                      type="checkbox"
-                      ${checked}
-                      onchange="
-                        updateTask(
-                          ${task.id},
-                          this.checked
-                        )
-                      "
-                    >
-
-                    <div>
-
-                      <div
-                        class="task-title ${completedClass}"
-                      >
-                        ${escapeHtml(
-                          task.title
-                        )}
-                      </div>
-
-                      ${description}
-
-                    </div>
-
-                  </label>
-
-                  ${minutes}
-
-                </div>
-              `;
-            })
-            .join("");
-
-
-        // -----------------------------------------------------
-        // 初期進捗
-        // -----------------------------------------------------
-        const completedCount =
-          taskResults.filter(
-            task => task.completed
-          ).length;
-
-
-        // -----------------------------------------------------
-        // HTML
-        // -----------------------------------------------------
-        return new Response(
-          createChecklistHtml({
-            studyDate,
-            title: plan.title,
-            description: plan.description,
-            taskList,
-            completedCount,
-            totalCount: taskResults.length
-          }),
-          {
-            headers: {
-              "Content-Type":
-                "text/html; charset=UTF-8"
+          return new Response(
+            createNoPlanHtml(date),
+            {
+              headers: {
+                "Content-Type":
+                  "text/html; charset=UTF-8"
+              }
             }
-          }
+          );
+        }
+
+        return await createChecklistResponse(
+          env.DB,
+          plan
         );
       }
 
@@ -662,9 +442,6 @@ export default {
 
     } catch (error) {
 
-      // =======================================================
-      // エラー処理
-      // =======================================================
       console.error(error);
 
       return Response.json(
@@ -683,6 +460,340 @@ export default {
 
 
 // =============================================================
+// 学習計画保存
+//
+// 同じstudy_dateが存在する場合:
+//   → 既存計画を更新
+//   → タスクを更新
+//
+// 存在しない場合:
+//   → 新規登録
+// =============================================================
+async function saveStudyPlan(
+  DB,
+  data,
+  corsHeaders
+) {
+
+  // -----------------------------------------------------------
+  // 入力チェック
+  // -----------------------------------------------------------
+  if (
+    !data.study_date ||
+    !data.title
+  ) {
+
+    return Response.json(
+      {
+        success: false,
+        message:
+          "study_date and title are required"
+      },
+      {
+        status: 400,
+        headers: corsHeaders
+      }
+    );
+  }
+
+
+  // -----------------------------------------------------------
+  // tasksの正規化
+  // -----------------------------------------------------------
+  const tasks =
+    Array.isArray(data.tasks)
+      ? data.tasks
+      : [];
+
+
+  // -----------------------------------------------------------
+  // 既存計画を検索
+  // -----------------------------------------------------------
+  const existingPlan =
+    await DB.prepare(`
+      SELECT *
+      FROM study_plans
+      WHERE study_date = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `)
+      .bind(data.study_date)
+      .first();
+
+
+  let planId;
+
+
+  // ===========================================================
+  // 既存計画あり
+  // ===========================================================
+  if (existingPlan) {
+
+    planId =
+      existingPlan.id;
+
+
+    // ---------------------------------------------------------
+    // 計画更新
+    // ---------------------------------------------------------
+    await DB.prepare(`
+      UPDATE study_plans
+      SET
+        title = ?,
+        description = ?
+      WHERE id = ?
+    `)
+      .bind(
+        data.title,
+        data.description ?? null,
+        planId
+      )
+      .run();
+
+
+    // ---------------------------------------------------------
+    // 既存タスク削除
+    //
+    // デイリーブリーフィングが再実行された場合、
+    // 新しい学習計画に置き換える。
+    // ---------------------------------------------------------
+    await DB.prepare(`
+      DELETE FROM study_tasks
+      WHERE plan_id = ?
+    `)
+      .bind(planId)
+      .run();
+
+  }
+
+  // ===========================================================
+  // 新規計画
+  // ===========================================================
+  else {
+
+    const result =
+      await DB.prepare(`
+        INSERT INTO study_plans (
+          study_date,
+          title,
+          description
+        )
+        VALUES (?, ?, ?)
+      `)
+        .bind(
+          data.study_date,
+          data.title,
+          data.description ?? null
+        )
+        .run();
+
+    planId =
+      result.meta.last_row_id;
+  }
+
+
+  // ===========================================================
+  // タスク登録
+  // ===========================================================
+  for (
+    let i = 0;
+    i < tasks.length;
+    i++
+  ) {
+
+    const task =
+      tasks[i];
+
+    if (!task.title) {
+      continue;
+    }
+
+    await DB.prepare(`
+      INSERT INTO study_tasks (
+        plan_id,
+        title,
+        description,
+        minutes,
+        completed,
+        sort_order
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+      .bind(
+        planId,
+        task.title,
+        task.description ?? null,
+        task.minutes ?? null,
+        0,
+        i + 1
+      )
+      .run();
+  }
+
+
+  // ===========================================================
+  // 登録結果
+  // ===========================================================
+  return Response.json(
+    {
+      success: true,
+
+      message:
+        existingPlan
+          ? "Study plan updated!"
+          : "Study plan saved!",
+
+      plan_id: planId,
+
+      study_date:
+        data.study_date,
+
+      task_count:
+        tasks.length,
+
+      updated:
+        Boolean(existingPlan)
+    },
+    {
+      headers: corsHeaders
+    }
+  );
+}
+
+
+// =============================================================
+// チェック表レスポンス
+// =============================================================
+async function createChecklistResponse(
+  DB,
+  plan
+) {
+
+  const tasks =
+    await DB.prepare(`
+      SELECT *
+      FROM study_tasks
+      WHERE plan_id = ?
+      ORDER BY sort_order
+    `)
+      .bind(plan.id)
+      .all();
+
+
+  const taskResults =
+    tasks.results;
+
+
+  const completedCount =
+    taskResults.filter(
+      task => task.completed
+    ).length;
+
+
+  const taskList =
+    taskResults
+      .map(task => {
+
+        const checked =
+          task.completed
+            ? "checked"
+            : "";
+
+        const completedClass =
+          task.completed
+            ? "completed"
+            : "";
+
+        const minutes =
+          task.minutes != null
+            ? `
+              <span class="minutes">
+                ${task.minutes}分
+              </span>
+            `
+            : "";
+
+        const description =
+          task.description
+            ? `
+              <div class="task-description">
+                ${escapeHtml(
+                  task.description
+                )}
+              </div>
+            `
+            : "";
+
+        return `
+          <div class="task">
+
+            <label class="task-main">
+
+              <input
+                type="checkbox"
+                ${checked}
+                data-task-id="${task.id}"
+                onchange="
+                  updateTask(
+                    ${task.id},
+                    this.checked
+                  )
+                "
+              >
+
+              <div>
+
+                <div
+                  class="task-title ${completedClass}"
+                >
+                  ${escapeHtml(
+                    task.title
+                  )}
+                </div>
+
+                ${description}
+
+              </div>
+
+            </label>
+
+            ${minutes}
+
+          </div>
+        `;
+      })
+      .join("");
+
+
+  return new Response(
+    createChecklistHtml({
+      studyDate:
+        plan.study_date,
+
+      title:
+        plan.title,
+
+      description:
+        plan.description,
+
+      taskList,
+
+      completedCount,
+
+      totalCount:
+        taskResults.length
+    }),
+    {
+      headers: {
+        "Content-Type":
+          "text/html; charset=UTF-8"
+      }
+    }
+  );
+}
+
+
+// =============================================================
 // HTMLエスケープ
 // =============================================================
 function escapeHtml(value) {
@@ -697,9 +808,11 @@ function escapeHtml(value) {
 
 
 // =============================================================
-// 学習計画がない場合のHTML
+// 学習計画がない場合
 // =============================================================
-function createNoPlanHtml(studyDate) {
+function createNoPlanHtml(
+  date = null
+) {
 
   return `
 <!DOCTYPE html>
@@ -757,10 +870,14 @@ function createNoPlanHtml(studyDate) {
 
     <h1>学習チェック表</h1>
 
-    <p>${studyDate}</p>
+    ${
+      date
+        ? `<p>${escapeHtml(date)}</p>`
+        : ""
+    }
 
     <p>
-      今日の学習計画はありません。
+      学習計画がありません。
     </p>
 
   </div>
@@ -1138,9 +1255,9 @@ function createChecklistHtml({
         // -----------------------------------------------------
         const checkbox =
           document.querySelector(
-            'input[type="checkbox"][onchange*="'
-            + taskId
-            + '"]'
+            'input[data-task-id="' +
+            taskId +
+            '"]'
           );
 
 
@@ -1167,15 +1284,11 @@ function createChecklistHtml({
               title.classList.remove(
                 "completed"
               );
-
             }
           }
         }
 
 
-        // -----------------------------------------------------
-        // 進捗更新
-        // -----------------------------------------------------
         updateProgress();
 
 
@@ -1210,9 +1323,9 @@ function createChecklistHtml({
         checkbox => {
 
           if (checkbox.checked) {
-
             completed++;
           }
+
         }
       );
 
@@ -1227,9 +1340,6 @@ function createChecklistHtml({
         completed;
 
 
-      // -------------------------------------------------------
-      // プログレスバー
-      // -------------------------------------------------------
       const percentage =
         total > 0
           ? (completed / total) * 100
@@ -1242,9 +1352,6 @@ function createChecklistHtml({
         percentage + "%";
 
 
-      // -------------------------------------------------------
-      // 全タスク完了
-      // -------------------------------------------------------
       const completeMessage =
         document.getElementById(
           "completeMessage"
