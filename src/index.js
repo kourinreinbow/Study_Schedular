@@ -1,37 +1,232 @@
 export default {
-  async fetch(request, env, ctx) {
-    // POST以外は受け付けない
-    if (request.method !== "POST") {
-      return Response.json(
-        {
-          success: false,
-          message: "POST request only"
-        },
-        { status: 405 }
-      );
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // -------------------------
+    // CORS
+    // -------------------------
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type"
+    };
+
+    // ブラウザからのOPTIONSリクエスト
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: corsHeaders
+      });
     }
 
     try {
-      // POSTされたJSONを取得
-      const data = await request.json();
+      // =========================
+      // POST /study-plan
+      // 勉強計画を登録
+      // =========================
+      if (
+        request.method === "POST" &&
+        url.pathname === "/study-plan"
+      ) {
+        const data = await request.json();
 
-      // 受け取った内容をログに出力
-      console.log("Received data:", data);
+        // 勉強計画を登録
+        const planResult = await env.DB.prepare(`
+          INSERT INTO study_plans (
+            study_date,
+            title,
+            description
+          )
+          VALUES (?, ?, ?)
+        `)
+          .bind(
+            data.study_date,
+            data.title,
+            data.description ?? null
+          )
+          .run();
 
-      // 受け取った内容をそのまま返す
-      return Response.json({
-        success: true,
-        message: "POST received successfully!",
-        received: data
-      });
+        const planId = planResult.meta.last_row_id;
 
-    } catch (error) {
+        // タスクを登録
+        if (Array.isArray(data.tasks)) {
+          for (let i = 0; i < data.tasks.length; i++) {
+            const task = data.tasks[i];
+
+            await env.DB.prepare(`
+              INSERT INTO study_tasks (
+                plan_id,
+                title,
+                description,
+                minutes,
+                completed,
+                sort_order
+              )
+              VALUES (?, ?, ?, ?, ?, ?)
+            `)
+              .bind(
+                planId,
+                task.title,
+                task.description ?? null,
+                task.minutes ?? null,
+                0,
+                i + 1
+              )
+              .run();
+          }
+        }
+
+        return Response.json(
+          {
+            success: true,
+            message: "Study plan saved!",
+            plan_id: planId
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+      // =========================
+      // GET /study-plan
+      // 勉強計画を全件取得
+      // =========================
+      if (
+        request.method === "GET" &&
+        url.pathname === "/study-plan"
+      ) {
+        const plans = await env.DB.prepare(`
+          SELECT *
+          FROM study_plans
+          ORDER BY study_date DESC
+        `).all();
+
+        return Response.json(
+          {
+            success: true,
+            plans: plans.results
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+      // =========================
+      // GET /study-plan/:date
+      // 指定日の勉強計画を取得
+      // =========================
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith("/study-plan/")
+      ) {
+        const date = url.pathname.split("/")[2];
+
+        const plan = await env.DB.prepare(`
+          SELECT *
+          FROM study_plans
+          WHERE study_date = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `)
+          .bind(date)
+          .first();
+
+        if (!plan) {
+          return Response.json(
+            {
+              success: false,
+              message: "Study plan not found"
+            },
+            {
+              status: 404,
+              headers: corsHeaders
+            }
+          );
+        }
+
+        const tasks = await env.DB.prepare(`
+          SELECT *
+          FROM study_tasks
+          WHERE plan_id = ?
+          ORDER BY sort_order
+        `)
+          .bind(plan.id)
+          .all();
+
+        return Response.json(
+          {
+            success: true,
+            plan: {
+              ...plan,
+              tasks: tasks.results
+            }
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+      // =========================
+      // PATCH /study-task/:id
+      // タスクの完了状態を変更
+      // =========================
+      if (
+        request.method === "PATCH" &&
+        url.pathname.startsWith("/study-task/")
+      ) {
+        const taskId = url.pathname.split("/")[2];
+        const data = await request.json();
+
+        const completed = data.completed ? 1 : 0;
+
+        await env.DB.prepare(`
+          UPDATE study_tasks
+          SET completed = ?,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `)
+          .bind(completed, taskId)
+          .run();
+
+        return Response.json(
+          {
+            success: true,
+            message: "Task updated!"
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+      // =========================
+      // 404
+      // =========================
       return Response.json(
         {
           success: false,
-          message: "Invalid JSON"
+          message: "Not Found"
         },
-        { status: 400 }
+        {
+          status: 404,
+          headers: corsHeaders
+        }
+      );
+
+    } catch (error) {
+      console.error(error);
+
+      return Response.json(
+        {
+          success: false,
+          message: error.message
+        },
+        {
+          status: 500,
+          headers: corsHeaders
+        }
       );
     }
   }
