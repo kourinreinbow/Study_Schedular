@@ -1,1 +1,1 @@
-"# Study_Schedular" 
+# Study_Schedular
