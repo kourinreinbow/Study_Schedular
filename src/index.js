@@ -57,6 +57,138 @@ export default {
 
 
       // =========================
+      // GET /study-plan/add
+      // クエリパラメータから勉強計画を登録
+      //
+      // 例:
+      // /study-plan/add
+      //   ?study_date=2026-08-09
+      //   &title=TOEIC
+      //   &description=今日の勉強
+      //   &task1=英単語
+      //   &task1_description=金のフレーズ
+      //   &task1_minutes=30
+      //   &task2=Part5
+      //   &task2_description=文法問題
+      //   &task2_minutes=30
+      // =========================
+      if (
+        request.method === "GET" &&
+        url.pathname === "/study-plan/add"
+      ) {
+
+        // -------------------------
+        // 勉強計画
+        // -------------------------
+        const studyDate = url.searchParams.get("study_date");
+        const title = url.searchParams.get("title");
+        const description =
+          url.searchParams.get("description");
+
+        // 必須項目チェック
+        if (!studyDate || !title) {
+          return Response.json(
+            {
+              success: false,
+              message: "study_date and title are required"
+            },
+            {
+              status: 400,
+              headers: corsHeaders
+            }
+          );
+        }
+
+        // -------------------------
+        // 勉強計画を登録
+        // -------------------------
+        const planResult = await env.DB.prepare(`
+          INSERT INTO study_plans (
+            study_date,
+            title,
+            description
+          )
+          VALUES (?, ?, ?)
+        `)
+          .bind(
+            studyDate,
+            title,
+            description ?? null
+          )
+          .run();
+
+        const planId = planResult.meta.last_row_id;
+
+        // -------------------------
+        // タスクを登録
+        // task1, task2, task3...
+        // -------------------------
+        let taskCount = 0;
+
+        for (let i = 1; i <= 100; i++) {
+
+          const taskTitle =
+            url.searchParams.get(`task${i}`);
+
+          // task1が存在しない場合は終了
+          if (!taskTitle) {
+            break;
+          }
+
+          const taskDescription =
+            url.searchParams.get(
+              `task${i}_description`
+            );
+
+          const taskMinutes =
+            url.searchParams.get(
+              `task${i}_minutes`
+            );
+
+          await env.DB.prepare(`
+            INSERT INTO study_tasks (
+              plan_id,
+              title,
+              description,
+              minutes,
+              completed,
+              sort_order
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+          `)
+            .bind(
+              planId,
+              taskTitle,
+              taskDescription ?? null,
+              taskMinutes
+                ? Number(taskMinutes)
+                : null,
+              0,
+              i
+            )
+            .run();
+
+          taskCount++;
+        }
+
+        // -------------------------
+        // 登録結果
+        // -------------------------
+        return Response.json(
+          {
+            success: true,
+            message: "Study plan saved!",
+            plan_id: planId,
+            task_count: taskCount
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+
+      // =========================
       // POST /study-plan
       // 勉強計画を登録
       // =========================
@@ -221,7 +353,7 @@ export default {
 
         const completed = data.completed ? 1 : 0;
 
-        await env.DB.prepare(`
+        const result = await env.DB.prepare(`
           UPDATE study_tasks
           SET completed = ?,
               updated_at = CURRENT_TIMESTAMP
@@ -229,6 +361,20 @@ export default {
         `)
           .bind(completed, taskId)
           .run();
+
+        // 存在しないタスクの場合
+        if (result.meta.changes === 0) {
+          return Response.json(
+            {
+              success: false,
+              message: "Task not found"
+            },
+            {
+              status: 404,
+              headers: corsHeaders
+            }
+          );
+        }
 
         return Response.json(
           {
