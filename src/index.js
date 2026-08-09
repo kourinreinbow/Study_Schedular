@@ -563,7 +563,8 @@ export default {
 
         return await createChecklistResponse(
           env.DB,
-          plan
+          plan,
+          corsHeaders
         );
       }
 
@@ -614,7 +615,8 @@ export default {
 
         return await createChecklistResponse(
           env.DB,
-          plan
+          plan,
+          corsHeaders
         );
       }
 
@@ -1171,7 +1173,8 @@ async function getLatestStudyResult(
 // =============================================================
 async function createChecklistResponse(
   DB,
-  plan
+  plan,
+  corsHeaders
 ) {
 
   const tasks =
