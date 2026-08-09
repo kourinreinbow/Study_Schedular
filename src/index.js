@@ -11,7 +11,9 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type"
     };
 
+    // =========================================================
     // OPTIONS
+    // =========================================================
     if (request.method === "OPTIONS") {
       return new Response(null, {
         headers: corsHeaders
@@ -22,30 +24,38 @@ export default {
 
       // =======================================================
       // GET /db_show
+      //
       // DB確認用
       // =======================================================
       if (
         request.method === "GET" &&
         url.pathname === "/db_show"
       ) {
-        const plans = await env.DB.prepare(`
-          SELECT *
-          FROM study_plans
-          ORDER BY study_date DESC, id DESC
-        `).all();
 
-        const tasks = await env.DB.prepare(`
-          SELECT *
-          FROM study_tasks
-          ORDER BY plan_id, sort_order
-        `).all();
+        const plans =
+          await env.DB.prepare(`
+            SELECT *
+            FROM study_plans
+            ORDER BY study_date DESC, id DESC
+          `).all();
+
+        const tasks =
+          await env.DB.prepare(`
+            SELECT *
+            FROM study_tasks
+            ORDER BY plan_id, sort_order
+          `).all();
 
         return Response.json(
           {
             success: true,
             database: "connected",
-            study_plans: plans.results,
-            study_tasks: tasks.results
+
+            study_plans:
+              plans.results,
+
+            study_tasks:
+              tasks.results
           },
           {
             headers: corsHeaders
@@ -71,8 +81,6 @@ export default {
       // &task2=Part5
       // &task2_description=文法問題
       // &task2_minutes=30
-      //
-      // 同じstudy_dateが存在する場合は更新
       // =======================================================
       if (
         request.method === "GET" &&
@@ -80,14 +88,21 @@ export default {
       ) {
 
         const data = {
+
           study_date:
-            url.searchParams.get("study_date"),
+            url.searchParams.get(
+              "study_date"
+            ),
 
           title:
-            url.searchParams.get("title"),
+            url.searchParams.get(
+              "title"
+            ),
 
           description:
-            url.searchParams.get("description"),
+            url.searchParams.get(
+              "description"
+            ),
 
           tasks: []
         };
@@ -96,17 +111,25 @@ export default {
         // -----------------------------------------------------
         // task1, task2, task3...
         // -----------------------------------------------------
-        for (let i = 1; i <= 100; i++) {
+        for (
+          let i = 1;
+          i <= 100;
+          i++
+        ) {
 
           const taskTitle =
-            url.searchParams.get(`task${i}`);
+            url.searchParams.get(
+              `task${i}`
+            );
 
           if (!taskTitle) {
             break;
           }
 
           data.tasks.push({
-            title: taskTitle,
+
+            title:
+              taskTitle,
 
             description:
               url.searchParams.get(
@@ -123,6 +146,7 @@ export default {
                     )
                   )
                 : null
+
           });
         }
 
@@ -173,6 +197,7 @@ export default {
 
       // =======================================================
       // GET /study-plan
+      //
       // 全学習計画を取得
       // =======================================================
       if (
@@ -190,7 +215,9 @@ export default {
         return Response.json(
           {
             success: true,
-            plans: plans.results
+
+            plans:
+              plans.results
           },
           {
             headers: corsHeaders
@@ -201,11 +228,16 @@ export default {
 
       // =======================================================
       // GET /study-plan/:date
+      //
       // 指定日の学習計画を取得
+      //
+      // actual_secondsも含めて返す
       // =======================================================
       if (
         request.method === "GET" &&
-        url.pathname.startsWith("/study-plan/")
+        url.pathname.startsWith(
+          "/study-plan/"
+        )
       ) {
 
         const date =
@@ -223,10 +255,12 @@ export default {
             .first();
 
         if (!plan) {
+
           return Response.json(
             {
               success: false,
-              message: "Study plan not found"
+              message:
+                "Study plan not found"
             },
             {
               status: 404,
@@ -234,6 +268,7 @@ export default {
             }
           );
         }
+
 
         const tasks =
           await env.DB.prepare(`
@@ -245,14 +280,158 @@ export default {
             .bind(plan.id)
             .all();
 
+
         return Response.json(
           {
             success: true,
 
             plan: {
               ...plan,
-              tasks: tasks.results
+
+              tasks:
+                tasks.results
             }
+          },
+          {
+            headers: corsHeaders
+          }
+        );
+      }
+
+
+      // =======================================================
+      // GET /study-result/latest
+      //
+      // 最新の学習結果を取得
+      //
+      // IMPORTANT:
+      // /study-result/:date より先に判定する。
+      // =======================================================
+      if (
+        request.method === "GET" &&
+        url.pathname ===
+          "/study-result/latest"
+      ) {
+
+        return await getLatestStudyResult(
+          env.DB,
+          corsHeaders
+        );
+      }
+
+
+      // =======================================================
+      // GET /study-result/:date
+      //
+      // 指定日の学習結果を取得
+      //
+      // デイリーブリーフィングから
+      // 前日の学習結果を参照するために使用
+      // =======================================================
+      if (
+        request.method === "GET" &&
+        url.pathname.startsWith(
+          "/study-result/"
+        )
+      ) {
+
+        const date =
+          url.pathname.split("/")[2];
+
+        return await getStudyResult(
+          env.DB,
+          date,
+          corsHeaders
+        );
+      }
+
+
+      // =======================================================
+      // PATCH /study-task/:id/time
+      //
+      // タイマー実績時間をDBへ保存
+      //
+      // JSON:
+      //
+      // {
+      //   "actual_seconds": 1234
+      // }
+      // =======================================================
+      if (
+        request.method === "PATCH" &&
+        url.pathname.startsWith(
+          "/study-task/"
+        ) &&
+        url.pathname.endsWith(
+          "/time"
+        )
+      ) {
+
+        const parts =
+          url.pathname.split("/");
+
+        const taskId =
+          parts[2];
+
+        const data =
+          await request.json();
+
+        const actualSeconds =
+          Math.max(
+            0,
+            Math.floor(
+              Number(
+                data.actual_seconds
+              ) || 0
+            )
+          );
+
+
+        const result =
+          await env.DB.prepare(`
+            UPDATE study_tasks
+            SET
+              actual_seconds = ?,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `)
+            .bind(
+              actualSeconds,
+              taskId
+            )
+            .run();
+
+
+        if (
+          result.meta.changes === 0
+        ) {
+
+          return Response.json(
+            {
+              success: false,
+              message:
+                "Task not found"
+            },
+            {
+              status: 404,
+              headers: corsHeaders
+            }
+          );
+        }
+
+
+        return Response.json(
+          {
+            success: true,
+
+            message:
+              "Study time updated!",
+
+            task_id:
+              Number(taskId),
+
+            actual_seconds:
+              actualSeconds
           },
           {
             headers: corsHeaders
@@ -265,10 +444,17 @@ export default {
       // PATCH /study-task/:id
       //
       // チェック状態を変更
+      //
+      // 既存API
       // =======================================================
       if (
         request.method === "PATCH" &&
-        url.pathname.startsWith("/study-task/")
+        url.pathname.startsWith(
+          "/study-task/"
+        ) &&
+        !url.pathname.endsWith(
+          "/time"
+        )
       ) {
 
         const taskId =
@@ -278,7 +464,10 @@ export default {
           await request.json();
 
         const completed =
-          data.completed ? 1 : 0;
+          data.completed
+            ? 1
+            : 0;
+
 
         const result =
           await env.DB.prepare(`
@@ -294,13 +483,16 @@ export default {
             )
             .run();
 
+
         if (
           result.meta.changes === 0
         ) {
+
           return Response.json(
             {
               success: false,
-              message: "Task not found"
+              message:
+                "Task not found"
             },
             {
               status: 404,
@@ -309,12 +501,19 @@ export default {
           );
         }
 
+
         return Response.json(
           {
             success: true,
-            message: "Task updated!",
-            task_id: Number(taskId),
-            completed: completed === 1
+
+            message:
+              "Task updated!",
+
+            task_id:
+              Number(taskId),
+
+            completed:
+              completed === 1
           },
           {
             headers: corsHeaders
@@ -328,21 +527,8 @@ export default {
       //
       // 最新の学習計画をチェック表として表示
       //
-      // 重要:
-      // 「今日の日付」ではなく、
-      // DBに登録された最新のstudy_dateを使用する。
-      //
-      // そのため、
-      //
-      // 8/9 デイリーブリーフィング
-      //      ↓
-      // 8/9の計画
-      //
-      // 8/10 デイリーブリーフィング
-      //      ↓
-      // 8/10の計画
-      //
-      // と自動的に切り替わる。
+      // 今日の日付ではなく、
+      // DBに登録された最新のstudy_dateを使用
       // =======================================================
       if (
         request.method === "GET" &&
@@ -358,18 +544,22 @@ export default {
           `)
             .first();
 
+
         if (!plan) {
 
           return new Response(
             createNoPlanHtml(),
             {
               headers: {
+                ...corsHeaders,
+
                 "Content-Type":
                   "text/html; charset=UTF-8"
               }
             }
           );
         }
+
 
         return await createChecklistResponse(
           env.DB,
@@ -382,17 +572,17 @@ export default {
       // GET /checklist/:date
       //
       // 指定日のチェック表
-      //
-      // 例:
-      // /checklist/2026-08-09
       // =======================================================
       if (
         request.method === "GET" &&
-        url.pathname.startsWith("/checklist/")
+        url.pathname.startsWith(
+          "/checklist/"
+        )
       ) {
 
         const date =
           url.pathname.split("/")[2];
+
 
         const plan =
           await env.DB.prepare(`
@@ -405,18 +595,22 @@ export default {
             .bind(date)
             .first();
 
+
         if (!plan) {
 
           return new Response(
             createNoPlanHtml(date),
             {
               headers: {
+                ...corsHeaders,
+
                 "Content-Type":
                   "text/html; charset=UTF-8"
               }
             }
           );
         }
+
 
         return await createChecklistResponse(
           env.DB,
@@ -431,7 +625,8 @@ export default {
       return Response.json(
         {
           success: false,
-          message: "Not Found"
+          message:
+            "Not Found"
         },
         {
           status: 404,
@@ -447,7 +642,9 @@ export default {
       return Response.json(
         {
           success: false,
-          message: error.message
+
+          message:
+            error.message
         },
         {
           status: 500,
@@ -486,6 +683,7 @@ async function saveStudyPlan(
     return Response.json(
       {
         success: false,
+
         message:
           "study_date and title are required"
       },
@@ -496,6 +694,7 @@ async function saveStudyPlan(
     );
   }
 
+
   // -----------------------------------------------------------
   // tasksの正規化
   // -----------------------------------------------------------
@@ -503,6 +702,7 @@ async function saveStudyPlan(
     Array.isArray(data.tasks)
       ? data.tasks
       : [];
+
 
   // -----------------------------------------------------------
   // 既存計画を検索
@@ -518,7 +718,9 @@ async function saveStudyPlan(
       .bind(data.study_date)
       .first();
 
+
   let planId;
+
 
   // ===========================================================
   // 既存計画あり
@@ -552,7 +754,10 @@ async function saveStudyPlan(
     //
     // デイリーブリーフィングが再実行された場合、
     // 新しい学習計画に置き換える。
-    // ---------------------------------------------------------
+    //
+    // NOTE:
+    // この仕様は既存コードから変更していない。
+    // =========================================================
     await DB.prepare(`
       DELETE FROM study_tasks
       WHERE plan_id = ?
@@ -561,6 +766,7 @@ async function saveStudyPlan(
       .run();
 
   }
+
 
   // ===========================================================
   // 新規計画
@@ -583,9 +789,11 @@ async function saveStudyPlan(
         )
         .run();
 
+
     planId =
       result.meta.last_row_id;
   }
+
 
   // ===========================================================
   // タスク登録
@@ -599,9 +807,11 @@ async function saveStudyPlan(
     const task =
       tasks[i];
 
+
     if (!task.title) {
       continue;
     }
+
 
     await DB.prepare(`
       INSERT INTO study_tasks (
@@ -609,21 +819,32 @@ async function saveStudyPlan(
         title,
         description,
         minutes,
+        actual_seconds,
         completed,
         sort_order
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         planId,
+
         task.title,
-        task.description ?? null,
-        task.minutes ?? null,
+
+        task.description ??
+          null,
+
+        task.minutes ??
+          null,
+
         0,
+
+        0,
+
         i + 1
       )
       .run();
   }
+
 
   // ===========================================================
   // 登録結果
@@ -637,7 +858,8 @@ async function saveStudyPlan(
           ? "Study plan updated!"
           : "Study plan saved!",
 
-      plan_id: planId,
+      plan_id:
+        planId,
 
       study_date:
         data.study_date,
@@ -647,6 +869,295 @@ async function saveStudyPlan(
 
       updated:
         Boolean(existingPlan)
+    },
+    {
+      headers: corsHeaders
+    }
+  );
+}
+
+
+// =============================================================
+// 指定日の学習結果取得
+// =============================================================
+async function getStudyResult(
+  DB,
+  date,
+  corsHeaders
+) {
+
+  const plan =
+    await DB.prepare(`
+      SELECT *
+      FROM study_plans
+      WHERE study_date = ?
+      ORDER BY id DESC
+      LIMIT 1
+    `)
+      .bind(date)
+      .first();
+
+
+  if (!plan) {
+
+    return Response.json(
+      {
+        success: false,
+
+        message:
+          "Study result not found"
+      },
+      {
+        status: 404,
+        headers: corsHeaders
+      }
+    );
+  }
+
+
+  const tasks =
+    await DB.prepare(`
+      SELECT
+        id,
+        plan_id,
+        title,
+        description,
+        minutes,
+        actual_seconds,
+        completed,
+        sort_order,
+        updated_at
+      FROM study_tasks
+      WHERE plan_id = ?
+      ORDER BY sort_order
+    `)
+      .bind(plan.id)
+      .all();
+
+
+  const taskResults =
+    tasks.results;
+
+
+  const totalPlannedMinutes =
+    taskResults.reduce(
+      (
+        sum,
+        task
+      ) =>
+        sum +
+        (
+          Number(
+            task.minutes
+          ) || 0
+        ),
+      0
+    );
+
+
+  const totalActualSeconds =
+    taskResults.reduce(
+      (
+        sum,
+        task
+      ) =>
+        sum +
+        (
+          Number(
+            task.actual_seconds
+          ) || 0
+        ),
+      0
+    );
+
+
+  const completedCount =
+    taskResults.filter(
+      task =>
+        task.completed
+    ).length;
+
+
+  return Response.json(
+    {
+      success: true,
+
+      study_date:
+        plan.study_date,
+
+      title:
+        plan.title,
+
+      description:
+        plan.description,
+
+      summary: {
+
+        total_planned_minutes:
+          totalPlannedMinutes,
+
+        total_actual_seconds:
+          totalActualSeconds,
+
+        total_actual_minutes:
+          Math.floor(
+            totalActualSeconds /
+            60
+          ),
+
+        completed_count:
+          completedCount,
+
+        total_count:
+          taskResults.length
+
+      },
+
+      tasks:
+        taskResults
+    },
+    {
+      headers: corsHeaders
+    }
+  );
+}
+
+
+// =============================================================
+// 最新の学習結果取得
+// =============================================================
+async function getLatestStudyResult(
+  DB,
+  corsHeaders
+) {
+
+  const plan =
+    await DB.prepare(`
+      SELECT *
+      FROM study_plans
+      ORDER BY study_date DESC, id DESC
+      LIMIT 1
+    `)
+      .first();
+
+
+  if (!plan) {
+
+    return Response.json(
+      {
+        success: false,
+
+        message:
+          "Study result not found"
+      },
+      {
+        status: 404,
+        headers: corsHeaders
+      }
+    );
+  }
+
+
+  const tasks =
+    await DB.prepare(`
+      SELECT
+        id,
+        plan_id,
+        title,
+        description,
+        minutes,
+        actual_seconds,
+        completed,
+        sort_order,
+        updated_at
+      FROM study_tasks
+      WHERE plan_id = ?
+      ORDER BY sort_order
+    `)
+      .bind(plan.id)
+      .all();
+
+
+  const taskResults =
+    tasks.results;
+
+
+  const totalPlannedMinutes =
+    taskResults.reduce(
+      (
+        sum,
+        task
+      ) =>
+        sum +
+        (
+          Number(
+            task.minutes
+          ) || 0
+        ),
+      0
+    );
+
+
+  const totalActualSeconds =
+    taskResults.reduce(
+      (
+        sum,
+        task
+      ) =>
+        sum +
+        (
+          Number(
+            task.actual_seconds
+          ) || 0
+        ),
+      0
+    );
+
+
+  const completedCount =
+    taskResults.filter(
+      task =>
+        task.completed
+    ).length;
+
+
+  return Response.json(
+    {
+      success: true,
+
+      study_date:
+        plan.study_date,
+
+      title:
+        plan.title,
+
+      description:
+        plan.description,
+
+      summary: {
+
+        total_planned_minutes:
+          totalPlannedMinutes,
+
+        total_actual_seconds:
+          totalActualSeconds,
+
+        total_actual_minutes:
+          Math.floor(
+            totalActualSeconds /
+            60
+          ),
+
+        completed_count:
+          completedCount,
+
+        total_count:
+          taskResults.length
+
+      },
+
+      tasks:
+        taskResults
     },
     {
       headers: corsHeaders
@@ -673,146 +1184,144 @@ async function createChecklistResponse(
       .bind(plan.id)
       .all();
 
+
   const taskResults =
     tasks.results;
 
+
   const completedCount =
     taskResults.filter(
-      task => task.completed
+      task =>
+        task.completed
     ).length;
+
 
   const taskList =
     taskResults
-      .map(task => {
+      .map(
+        task => {
 
-        const checked =
-          task.completed
-            ? "checked"
-            : "";
+          const checked =
+            task.completed
+              ? "checked"
+              : "";
 
-        const completedClass =
-          task.completed
-            ? "completed"
-            : "";
 
-        // =====================================================
-        // 学習時間タイマー
-        // =====================================================
-        const timer =
-          task.minutes != null
-            ? `
-              <div
-                class="task-timer"
-                data-task-id="${task.id}"
-                data-minutes="${task.minutes}"
-              >
+          const completedClass =
+            task.completed
+              ? "completed"
+              : "";
 
+
+          const minutes =
+            task.minutes != null
+              ? `
+                <span class="minutes">
+                  予定：
+                  ${task.minutes}分
+                </span>
+              `
+              : "";
+
+
+          const actualSeconds =
+            Number(
+              task.actual_seconds
+            ) || 0;
+
+
+          const timer =
+            createTimerHtml(
+              task,
+              actualSeconds
+            );
+
+
+          const description =
+            task.description
+              ? `
                 <div
-                  class="timer-display"
-                  id="timer-${task.id}"
-                >
-                  ${String(task.minutes).padStart(2, "0")}:00
-                </div>
-
-                <div class="timer-buttons">
-
-                  <button
-                    type="button"
-                    class="timer-button start-button"
-                    onclick="
-                      startTimer(
-                        ${task.id},
-                        ${task.minutes}
-                      )
-                    "
-                  >
-                    ▶ 開始
-                  </button>
-
-                  <button
-                    type="button"
-                    class="timer-button pause-button"
-                    onclick="
-                      pauseTimer(
-                        ${task.id}
-                      )
-                    "
-                  >
-                    ⏸ 一時停止
-                  </button>
-
-                  <button
-                    type="button"
-                    class="timer-button reset-button"
-                    onclick="
-                      resetTimer(
-                        ${task.id},
-                        ${task.minutes}
-                      )
-                    "
-                  >
-                    ↻ リセット
-                  </button>
-
-                </div>
-
-              </div>
-            `
-            : "";
-
-        const description =
-          task.description
-            ? `
-              <div class="task-description">
-                ${escapeHtml(
-                  task.description
-                )}
-              </div>
-            `
-            : "";
-
-        return `
-          <div
-            class="task"
-            data-task-container="${task.id}"
-          >
-
-            <label class="task-main">
-
-              <input
-                type="checkbox"
-                ${checked}
-                data-task-id="${task.id}"
-                onchange="
-                  updateTask(
-                    ${task.id},
-                    this.checked
-                  )
-                "
-              >
-
-              <div class="task-content">
-
-                <div
-                  class="task-title ${completedClass}"
-                  id="task-title-${task.id}"
+                  class="task-description"
                 >
                   ${escapeHtml(
-                    task.title
+                    task.description
                   )}
                 </div>
+              `
+              : "";
 
-                ${description}
+
+          return `
+            <div
+              class="task"
+              data-task-id="${task.id}"
+            >
+
+              <label class="task-main">
+
+                <input
+                  type="checkbox"
+                  ${checked}
+
+                  data-task-id="${task.id}"
+
+                  onchange="
+                    updateTask(
+                      ${task.id},
+                      this.checked
+                    )
+                  "
+                >
+
+
+                <div>
+
+                  <div
+                    class="
+                      task-title
+                      ${completedClass}
+                    "
+                  >
+                    ${escapeHtml(
+                      task.title
+                    )}
+                  </div>
+
+
+                  ${description}
+
+                </div>
+
+              </label>
+
+
+              <div class="task-info">
+
+                ${minutes}
+
+
+                <span
+                  class="actual-time"
+                >
+                  実績：
+                  <span
+                    id="actual-${task.id}"
+                  >
+                    ${formatSeconds(
+                      actualSeconds
+                    )}
+                  </span>
+                </span>
 
               </div>
 
-            </label>
 
-            ${timer}
+              ${timer}
 
-          </div>
-        `;
-      })
+            </div>
+          `;
+        }
+      )
       .join("");
 
 
@@ -836,6 +1345,8 @@ async function createChecklistResponse(
     }),
     {
       headers: {
+        ...corsHeaders,
+
         "Content-Type":
           "text/html; charset=UTF-8"
       }
@@ -845,16 +1356,215 @@ async function createChecklistResponse(
 
 
 // =============================================================
+// タイマーHTML
+// =============================================================
+function createTimerHtml(
+  task,
+  actualSeconds
+) {
+
+  const taskId =
+    Number(task.id);
+
+
+  const plannedSeconds =
+    task.minutes != null
+      ? Number(task.minutes) * 60
+      : 0;
+
+
+  return `
+    <div
+      class="timer"
+      id="timer-${taskId}"
+
+      data-task-id="${taskId}"
+
+      data-planned-seconds="${plannedSeconds}"
+
+      data-actual-seconds="${actualSeconds}"
+    >
+
+      <div
+        class="timer-display"
+      >
+        ${formatSeconds(
+          actualSeconds
+        )}
+      </div>
+
+
+      <div
+        class="timer-buttons"
+      >
+
+        <button
+          type="button"
+
+          onclick="
+            startTimer(${taskId})
+          "
+        >
+          ▶ 開始
+        </button>
+
+
+        <button
+          type="button"
+
+          onclick="
+            pauseTimer(${taskId})
+          "
+        >
+          ⏸ 一時停止
+        </button>
+
+
+        <button
+          type="button"
+
+          onclick="
+            resetTimer(${taskId})
+          "
+        >
+          ↻ リセット
+        </button>
+
+      </div>
+
+
+      ${
+        plannedSeconds > 0
+          ? `
+            <div
+              class="timer-plan"
+            >
+              予定：
+              ${task.minutes}分
+
+              <span
+                class="timer-plan-note"
+              >
+                （予定時間を超えても計測します）
+              </span>
+            </div>
+          `
+          : ""
+      }
+
+    </div>
+  `;
+}
+
+
+// =============================================================
+// 秒数 → HH:MM:SS / MM:SS
+// =============================================================
+function formatSeconds(
+  totalSeconds
+) {
+
+  const seconds =
+    Math.max(
+      0,
+      Math.floor(
+        Number(
+          totalSeconds
+        ) || 0
+      )
+    );
+
+
+  const hours =
+    Math.floor(
+      seconds / 3600
+    );
+
+
+  const minutes =
+    Math.floor(
+      (
+        seconds % 3600
+      ) / 60
+    );
+
+
+  const secs =
+    seconds % 60;
+
+
+  if (hours > 0) {
+
+    return [
+      String(hours)
+        .padStart(
+          2,
+          "0"
+        ),
+
+      String(minutes)
+        .padStart(
+          2,
+          "0"
+        ),
+
+      String(secs)
+        .padStart(
+          2,
+          "0"
+        )
+
+    ].join(":");
+  }
+
+
+  return [
+    String(minutes)
+      .padStart(
+        2,
+        "0"
+      ),
+
+    String(secs)
+      .padStart(
+        2,
+        "0"
+      )
+
+  ].join(":");
+}
+
+
+// =============================================================
 // HTMLエスケープ
 // =============================================================
-function escapeHtml(value) {
+function escapeHtml(
+  value
+) {
 
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(
+    value ?? ""
+  )
+    .replaceAll(
+      "&",
+      "&amp;"
+    )
+    .replaceAll(
+      "<",
+      "&lt;"
+    )
+    .replaceAll(
+      ">",
+      "&gt;"
+    )
+    .replaceAll(
+      '"',
+      "&quot;"
+    )
+    .replaceAll(
+      "'",
+      "&#039;"
+    );
 }
 
 
@@ -866,39 +1576,56 @@ function createNoPlanHtml(
 ) {
 
   return `
-<!DOCTYPE html>
-<html lang="ja">
+    <!DOCTYPE html>
 
-<head>
+    <html lang="ja">
 
-  <meta charset="UTF-8">
+    <head>
 
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
+      <meta
+        charset="UTF-8"
+      >
 
-  <title>学習チェック表</title>
+      <meta
+        name="viewport"
+        content="
+          width=device-width,
+          initial-scale=1.0
+        "
+      >
 
-</head>
+      <title>
+        学習チェック表
+      </title>
 
-<body>
+    </head>
 
-  <h1>学習チェック表</h1>
 
-  ${
-    date
-      ? `<p>${escapeHtml(date)}</p>`
-      : ""
-  }
+    <body>
 
-  <p>
-    学習計画がありません。
-  </p>
+      <h1>
+        学習チェック表
+      </h1>
 
-</body>
 
-</html>
+      ${
+        date
+          ? `
+            <p>
+              ${escapeHtml(date)}
+            </p>
+          `
+          : ""
+      }
+
+
+      <p>
+        学習計画がありません。
+      </p>
+
+    </body>
+
+    </html>
   `;
 }
 
@@ -916,1388 +1643,812 @@ function createChecklistHtml({
 }) {
 
   return `
-<!DOCTYPE html>
-<html lang="ja">
+    <!DOCTYPE html>
 
-<head>
+    <html lang="ja">
 
-  <meta charset="UTF-8">
+    <head>
 
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
+      <meta
+        charset="UTF-8"
+      >
 
-  <title>
-    ${escapeHtml(title)}
-  </title>
 
+      <meta
+        name="viewport"
+        content="
+          width=device-width,
+          initial-scale=1.0
+        "
+      >
 
-  <style>
 
-    /* ========================================================
-       全体
-       ======================================================== */
+      <title>
+        ${escapeHtml(title)}
+      </title>
 
-    * {
-      box-sizing: border-box;
-    }
 
-    body {
+      <style>
 
-      margin: 0;
-      padding: 20px;
-
-      font-family:
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
-
-      background: #f7f7f7;
-      color: #222;
-
-    }
-
-
-    /* ========================================================
-       タイトル
-       ======================================================== */
-
-    h1 {
-
-      margin: 0 0 8px 0;
-
-      font-size: 28px;
-
-    }
-
-
-    .date {
-
-      color: #666;
-
-      margin-bottom: 16px;
-
-    }
-
-
-    .description {
-
-      background: #fff;
-
-      padding: 14px;
-
-      border-radius: 10px;
-
-      margin-bottom: 20px;
-
-      line-height: 1.6;
-
-    }
-
-
-    /* ========================================================
-       進捗
-       ======================================================== */
-
-    .progress {
-
-      font-weight: bold;
-
-      margin-bottom: 8px;
-
-    }
-
-
-    .progress-bar {
-
-      width: 100%;
-
-      height: 12px;
-
-      background: #ddd;
-
-      border-radius: 10px;
-
-      overflow: hidden;
-
-      margin-bottom: 20px;
-
-    }
-
-
-    .progress-value {
-
-      width: 0%;
-
-      height: 100%;
-
-      background: #4caf50;
-
-      transition:
-        width 0.3s ease;
-
-    }
-
-
-    /* ========================================================
-       タスク
-       ======================================================== */
-
-    #tasks {
-
-      display: flex;
-
-      flex-direction: column;
-
-      gap: 12px;
-
-    }
-
-
-    .task {
-
-      background: #fff;
-
-      border-radius: 12px;
-
-      padding: 16px;
-
-      box-shadow:
-        0 2px 6px
-        rgba(0, 0, 0, 0.08);
-
-    }
-
-
-    .task-main {
-
-      display: flex;
-
-      align-items: flex-start;
-
-      gap: 12px;
-
-      cursor: pointer;
-
-    }
-
-
-    .task-main input {
-
-      width: 22px;
-
-      height: 22px;
-
-      flex-shrink: 0;
-
-      margin-top: 2px;
-
-      cursor: pointer;
-
-    }
-
-
-    .task-content {
-
-      flex: 1;
-
-      min-width: 0;
-
-    }
-
-
-    .task-title {
-
-      font-size: 18px;
-
-      font-weight: bold;
-
-      line-height: 1.4;
-
-    }
-
-
-    .task-title.completed {
-
-      text-decoration: line-through;
-
-      color: #999;
-
-    }
-
-
-    .task-description {
-
-      margin-top: 5px;
-
-      color: #666;
-
-      line-height: 1.5;
-
-      font-size: 14px;
-
-    }
-
-
-    /* ========================================================
-       タイマー
-       ======================================================== */
-
-    .task-timer {
-
-      margin-top: 14px;
-
-      padding: 12px;
-
-      background: #f3f4f6;
-
-      border-radius: 10px;
-
-    }
-
-
-    .timer-display {
-
-      text-align: center;
-
-      font-family: monospace;
-
-      font-size: 32px;
-
-      font-weight: bold;
-
-      letter-spacing: 1px;
-
-      margin-bottom: 10px;
-
-    }
-
-
-    .timer-display.running {
-
-      color: #1976d2;
-
-    }
-
-
-    .timer-display.paused {
-
-      color: #777;
-
-    }
-
-
-    .timer-display.timer-finished {
-
-      color: #d32f2f;
-
-    }
-
-
-    .timer-buttons {
-
-      display: flex;
-
-      justify-content: center;
-
-      gap: 7px;
-
-      flex-wrap: wrap;
-
-    }
-
-
-    .timer-button {
-
-      border: 1px solid #ccc;
-
-      background: #fff;
-
-      border-radius: 7px;
-
-      padding: 8px 12px;
-
-      font-size: 14px;
-
-      cursor: pointer;
-
-      transition:
-        background 0.15s ease;
-
-    }
-
-
-    .timer-button:hover {
-
-      background: #e9e9e9;
-
-    }
-
-
-    .timer-button:active {
-
-      transform: scale(0.97);
-
-    }
-
-
-    .start-button {
-
-      border-color: #81c784;
-
-    }
-
-
-    .pause-button {
-
-      border-color: #ffb74d;
-
-    }
-
-
-    .reset-button {
-
-      border-color: #90caf9;
-
-    }
-
-
-    /* ========================================================
-       完了メッセージ
-       ======================================================== */
-
-    .complete-message {
-
-      display: none;
-
-      margin-top: 20px;
-
-      padding: 16px;
-
-      text-align: center;
-
-      background: #e8f5e9;
-
-      border-radius: 10px;
-
-      font-weight: bold;
-
-    }
-
-
-    /* ========================================================
-       スマートフォン
-       ======================================================== */
-
-    @media (max-width: 600px) {
-
-      body {
-
-        padding: 14px;
-
-      }
-
-
-      h1 {
-
-        font-size: 24px;
-
-      }
-
-
-      .task {
-
-        padding: 14px;
-
-      }
-
-
-      .timer-display {
-
-        font-size: 28px;
-
-      }
-
-
-      .timer-button {
-
-        flex: 1;
-
-        min-width: 90px;
-
-      }
-
-    }
-
-  </style>
-
-</head>
-
-
-<body>
-
-  <!-- ========================================================
-       タイトル
-       ======================================================== -->
-
-  <h1>
-    ${escapeHtml(title)}
-  </h1>
-
-
-  <div class="date">
-    ${escapeHtml(studyDate)}
-  </div>
-
-
-  ${
-    description
-      ? `
-        <div class="description">
-          ${escapeHtml(description)}
-        </div>
-      `
-      : ""
-  }
-
-
-  <!-- ========================================================
-       進捗
-       ======================================================== -->
-
-  <div
-    class="progress"
-    id="progress"
-  >
-
-    進捗：
-
-    <span id="completedCount">
-      ${completedCount}
-    </span>
-
-    /
-
-    <span id="totalCount">
-      ${totalCount}
-    </span>
-
-  </div>
-
-
-  <div class="progress-bar">
-
-    <div
-      class="progress-value"
-      id="progressValue"
-    ></div>
-
-  </div>
-
-
-  <!-- ========================================================
-       タスク一覧
-       ======================================================== -->
-
-  <div id="tasks">
-
-    ${taskList}
-
-  </div>
-
-
-  <!-- ========================================================
-       完了メッセージ
-       ======================================================== -->
-
-  <div
-    class="complete-message"
-    id="completeMessage"
-  >
-    🎉 今日の学習完了！
-  </div>
-
-
-  <script>
-
-    // ========================================================
-    // タイマー管理
-    //
-    // taskId:
-    // {
-    //   remaining: 残り秒数,
-    //   endTime: 終了予定時刻(ms),
-    //   interval: setInterval ID,
-    //   running: true / false
-    // }
-    // ========================================================
-
-    const timers = {};
-
-
-    // ========================================================
-    // localStorageキー
-    //
-    // study_dateごとに保存する。
-    //
-    // これにより、別の日の学習計画と
-    // タイマー状態が混ざらない。
-    // ========================================================
-
-    const TIMER_STORAGE_KEY =
-      "toeic_study_timers_${escapeHtml(studyDate)}";
-
-
-    // ========================================================
-    // localStorageからタイマー状態を読み込む
-    // ========================================================
-
-    function loadTimerStates() {
-
-      try {
-
-        const saved =
-          localStorage.getItem(
-            TIMER_STORAGE_KEY
-          );
-
-        if (!saved) {
-          return {};
+        * {
+          box-sizing: border-box;
         }
 
-        return JSON.parse(saved);
 
-      } catch (error) {
+        body {
 
-        console.error(
-          "Failed to load timer states:",
-          error
-        );
+          font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
 
-        return {};
-      }
-    }
+          margin: 0;
 
+          padding: 20px;
 
-    // ========================================================
-    // localStorageへタイマー状態を保存
-    // ========================================================
+          background:
+            #f5f5f5;
 
-    function saveTimerStates() {
+          color:
+            #222;
+        }
 
-      try {
 
-        const data = {};
+        h1 {
+          margin-bottom: 5px;
+        }
 
-        Object.keys(timers).forEach(
-          taskId => {
 
-            const timer =
-              timers[taskId];
+        .date {
 
-            data[taskId] = {
+          color:
+            #666;
 
-              remaining:
-                timer.remaining,
+          margin-bottom:
+            15px;
+        }
 
-              endTime:
-                timer.endTime,
 
-              running:
-                Boolean(
-                  timer.running
-                )
+        .description {
 
-            };
+          background:
+            white;
 
-          }
-        );
+          padding:
+            15px;
 
-        localStorage.setItem(
-          TIMER_STORAGE_KEY,
-          JSON.stringify(data)
-        );
+          border-radius:
+            10px;
 
-      } catch (error) {
+          margin-bottom:
+            20px;
+        }
 
-        console.error(
-          "Failed to save timer states:",
-          error
-        );
 
-      }
-    }
+        .progress {
 
+          font-weight:
+            bold;
 
-    // ========================================================
-    // 秒数を MM:SS に変換
-    // ========================================================
+          margin-bottom:
+            8px;
+        }
 
-    function formatTime(seconds) {
 
-      seconds =
-        Math.max(
-          0,
-          Math.floor(seconds)
-        );
+        .progress-bar {
 
-      const minutes =
-        Math.floor(
-          seconds / 60
-        );
+          width:
+            100%;
 
-      const remainingSeconds =
-        seconds % 60;
+          height:
+            10px;
 
-      return (
-        String(minutes).padStart(2, "0")
-        +
-        ":"
-        +
-        String(
-          remainingSeconds
-        ).padStart(2, "0")
-      );
-    }
+          background:
+            #ddd;
 
+          border-radius:
+            5px;
 
-    // ========================================================
-    // タイマー表示更新
-    // ========================================================
+          overflow:
+            hidden;
 
-    function updateTimerDisplay(
-      taskId,
-      seconds
-    ) {
+          margin-bottom:
+            20px;
+        }
 
-      const display =
-        document.getElementById(
-          "timer-" + taskId
-        );
 
-      if (!display) {
-        return;
-      }
+        .progress-value {
 
-      display.textContent =
-        formatTime(seconds);
+          width:
+            0%;
 
-    }
+          height:
+            100%;
 
+          background:
+            #4caf50;
 
-    // ========================================================
-    // タイマー状態のCSS更新
-    // ========================================================
+          transition:
+            width 0.3s;
+        }
 
-    function updateTimerClass(
-      taskId
-    ) {
 
-      const display =
-        document.getElementById(
-          "timer-" + taskId
-        );
+        #tasks {
 
-      if (!display) {
-        return;
-      }
+          display:
+            flex;
 
-      display.classList.remove(
-        "running",
-        "paused",
-        "timer-finished"
-      );
+          flex-direction:
+            column;
 
+          gap:
+            12px;
+        }
 
-      const timer =
-        timers[taskId];
 
-      if (!timer) {
-        return;
-      }
+        .task {
 
+          background:
+            white;
 
-      if (
-        timer.remaining <= 0
-      ) {
+          border-radius:
+            12px;
 
-        display.classList.add(
-          "timer-finished"
-        );
+          padding:
+            15px;
 
-      } else if (
-        timer.running
-      ) {
-
-        display.classList.add(
-          "running"
-        );
-
-      } else {
-
-        display.classList.add(
-          "paused"
-        );
-
-      }
-
-    }
-
-
-    // ========================================================
-    // タイマー開始
-    // ========================================================
-
-    function startTimer(
-      taskId,
-      initialMinutes
-    ) {
-
-      // ------------------------------------------------------
-      // 初回
-      // ------------------------------------------------------
-
-      if (!timers[taskId]) {
-
-        timers[taskId] = {
-
-          remaining:
-            initialMinutes * 60,
-
-          endTime:
-            null,
-
-          interval:
-            null,
-
-          running:
-            false
-
-        };
-
-      }
-
-
-      const timer =
-        timers[taskId];
-
-
-      // ------------------------------------------------------
-      // すでに実行中なら何もしない
-      // ------------------------------------------------------
-
-      if (timer.running) {
-        return;
-      }
-
-
-      // ------------------------------------------------------
-      // 0秒の場合は開始しない
-      // ------------------------------------------------------
-
-      if (
-        timer.remaining <= 0
-      ) {
-        return;
-      }
-
-
-      // ------------------------------------------------------
-      // 終了予定時刻を計算
-      //
-      // Date.now()を使うことで、
-      // setIntervalが多少ずれても
-      // 実時間に合わせてカウントできる。
-      // ------------------------------------------------------
-
-      timer.endTime =
-        Date.now()
-        +
-        timer.remaining * 1000;
-
-
-      timer.running =
-        true;
-
-
-      updateTimerClass(taskId);
-
-
-      // ------------------------------------------------------
-      // 既存intervalがあれば停止
-      // ------------------------------------------------------
-
-      if (timer.interval) {
-
-        clearInterval(
-          timer.interval
-        );
-
-      }
-
-
-      // ------------------------------------------------------
-      // タイマー処理
-      // ------------------------------------------------------
-
-      timer.interval =
-        setInterval(
-          () => {
-
-            const remaining =
-              Math.ceil(
-                (
-                  timer.endTime
-                  -
-                  Date.now()
-                ) / 1000
-              );
-
-
-            timer.remaining =
-              Math.max(
-                0,
-                remaining
-              );
-
-
-            updateTimerDisplay(
-              taskId,
-              timer.remaining
+          box-shadow:
+            0 2px 5px
+            rgba(
+              0,
+              0,
+              0,
+              0.08
             );
+        }
 
 
-            // ------------------------------------------------
-            // タイマー終了
-            // ------------------------------------------------
+        .task-main {
 
-            if (
-              timer.remaining <= 0
-            ) {
+          display:
+            flex;
 
-              finishTimer(
-                taskId
-              );
+          align-items:
+            flex-start;
 
-            }
-
-          },
-          250
-        );
+          gap:
+            10px;
+        }
 
 
-      saveTimerStates();
+        .task-main input {
 
-    }
+          width:
+            20px;
+
+          height:
+            20px;
+
+          margin-top:
+            2px;
+
+          flex-shrink:
+            0;
+        }
 
 
-    // ========================================================
-    // タイマー一時停止
-    // ========================================================
+        .task-title {
 
-    function pauseTimer(
-      taskId
-    ) {
+          font-size:
+            18px;
 
-      const timer =
-        timers[taskId];
+          font-weight:
+            bold;
+        }
 
-      if (!timer) {
-        return;
+
+        .task-title.completed {
+
+          text-decoration:
+            line-through;
+
+          color:
+            #999;
+        }
+
+
+        .task-description {
+
+          margin-top:
+            5px;
+
+          color:
+            #666;
+
+          font-size:
+            14px;
+        }
+
+
+        .task-info {
+
+          display:
+            flex;
+
+          gap:
+            12px;
+
+          margin-top:
+            10px;
+
+          color:
+            #555;
+
+          font-size:
+            14px;
+
+          flex-wrap:
+            wrap;
+        }
+
+
+        .minutes {
+
+          font-weight:
+            bold;
+        }
+
+
+        .actual-time {
+
+          color:
+            #1976d2;
+        }
+
+
+        .timer {
+
+          margin-top:
+            12px;
+
+          padding-top:
+            12px;
+
+          border-top:
+            1px solid #eee;
+        }
+
+
+        .timer-display {
+
+          font-size:
+            32px;
+
+          font-weight:
+            bold;
+
+          font-variant-numeric:
+            tabular-nums;
+
+          text-align:
+            center;
+
+          margin-bottom:
+            10px;
+        }
+
+
+        .timer-buttons {
+
+          display:
+            flex;
+
+          gap:
+            8px;
+
+          flex-wrap:
+            wrap;
+        }
+
+
+        .timer-buttons button {
+
+          flex:
+            1;
+
+          min-width:
+            90px;
+
+          padding:
+            10px 12px;
+
+          border:
+            none;
+
+          border-radius:
+            8px;
+
+          background:
+            #eee;
+
+          cursor:
+            pointer;
+
+          font-size:
+            14px;
+        }
+
+
+        .timer-buttons button:hover {
+
+          background:
+            #ddd;
+        }
+
+
+        .timer-plan {
+
+          text-align:
+            center;
+
+          color:
+            #777;
+
+          font-size:
+            13px;
+
+          margin-top:
+            8px;
+        }
+
+
+        .timer-plan-note {
+
+          font-size:
+            12px;
+
+          color:
+            #999;
+        }
+
+
+        .complete-message {
+
+          display:
+            none;
+
+          margin-top:
+            20px;
+
+          padding:
+            15px;
+
+          text-align:
+            center;
+
+          background:
+            #e8f5e9;
+
+          border-radius:
+            10px;
+
+          font-weight:
+            bold;
+        }
+
+      </style>
+
+    </head>
+
+
+    <body>
+
+
+      <h1>
+        ${escapeHtml(title)}
+      </h1>
+
+
+      <div class="date">
+        ${escapeHtml(studyDate)}
+      </div>
+
+
+      ${
+        description
+          ? `
+            <div
+              class="description"
+            >
+              ${escapeHtml(
+                description
+              )}
+            </div>
+          `
+          : ""
       }
 
 
-      if (
-        !timer.running
-      ) {
-        return;
-      }
+      <div
+        class="progress"
+        id="progress"
+      >
+
+        進捗：
+
+        <span
+          id="completedCount"
+        >
+          ${completedCount}
+        </span>
+
+        /
+
+        <span
+          id="totalCount"
+        >
+          ${totalCount}
+        </span>
+
+      </div>
 
 
-      // ------------------------------------------------------
-      // 現在の残り時間を計算
-      // ------------------------------------------------------
+      <div
+        class="progress-bar"
+      >
 
-      timer.remaining =
-        Math.max(
-          0,
-          Math.ceil(
-            (
-              timer.endTime
-              -
-              Date.now()
-            ) / 1000
-          )
-        );
+        <div
+          class="progress-value"
+          id="progressValue"
+        ></div>
+
+      </div>
 
 
-      // ------------------------------------------------------
-      // 停止
-      // ------------------------------------------------------
+      <div id="tasks">
 
-      if (timer.interval) {
+        ${taskList}
 
-        clearInterval(
-          timer.interval
-        );
-
-      }
+      </div>
 
 
-      timer.interval =
-        null;
-
-      timer.endTime =
-        null;
-
-      timer.running =
-        false;
+      <div
+        class="complete-message"
+        id="completeMessage"
+      >
+        🎉 今日の学習完了！
+      </div>
 
 
-      updateTimerDisplay(
-        taskId,
-        timer.remaining
-      );
+      <script>
 
-      updateTimerClass(
-        taskId
-      );
+        // =====================================================
+        // タイマー状態
+        //
+        // タスクごとに独立したタイマーを持つ
+        //
+        // timers = {
+        //   1: {
+        //     interval: ...
+        //   },
+        //   2: {
+        //     interval: ...
+        //   }
+        // }
+        // =====================================================
 
-      saveTimerStates();
-
-    }
-
-
-    // ========================================================
-    // タイマーリセット
-    // ========================================================
-
-    function resetTimer(
-      taskId,
-      initialMinutes
-    ) {
-
-      const oldTimer =
-        timers[taskId];
+        const timers = {};
 
 
-      // ------------------------------------------------------
-      // 現在のタイマー停止
-      // ------------------------------------------------------
+        // =====================================================
+        // タイマー要素取得
+        // =====================================================
 
-      if (
-        oldTimer?.interval
-      ) {
-
-        clearInterval(
-          oldTimer.interval
-        );
-
-      }
-
-
-      // ------------------------------------------------------
-      // 初期状態へ戻す
-      // ------------------------------------------------------
-
-      timers[taskId] = {
-
-        remaining:
-          initialMinutes * 60,
-
-        endTime:
-          null,
-
-        interval:
-          null,
-
-        running:
-          false
-
-      };
-
-
-      updateTimerDisplay(
-        taskId,
-        initialMinutes * 60
-      );
-
-      updateTimerClass(
-        taskId
-      );
-
-      saveTimerStates();
-
-    }
-
-
-    // ========================================================
-    // タイマー終了
-    // ========================================================
-
-    function finishTimer(
-      taskId
-    ) {
-
-      const timer =
-        timers[taskId];
-
-      if (!timer) {
-        return;
-      }
-
-
-      if (timer.interval) {
-
-        clearInterval(
-          timer.interval
-        );
-
-      }
-
-
-      timer.interval =
-        null;
-
-      timer.endTime =
-        null;
-
-      timer.remaining =
-        0;
-
-      timer.running =
-        false;
-
-
-      updateTimerDisplay(
-        taskId,
-        0
-      );
-
-      updateTimerClass(
-        taskId
-      );
-
-
-      saveTimerStates();
-
-
-      // ------------------------------------------------------
-      // 完了通知
-      // ------------------------------------------------------
-
-      try {
-
-        if (
-          "Notification" in window &&
-          Notification.permission ===
-            "granted"
+        function getTimerElement(
+          taskId
         ) {
 
-          new Notification(
-            "学習時間終了",
-            {
-              body:
-                "設定した学習時間が終了しました。"
-            }
-          );
-
-        }
-
-      } catch (error) {
-
-        console.error(
-          "Notification error:",
-          error
-        );
-
-      }
-
-
-      // ------------------------------------------------------
-      // 通知が利用できない場合はalert
-      // ------------------------------------------------------
-
-      if (
-        !(
-          "Notification" in window
-        ) ||
-        Notification.permission !==
-          "granted"
-      ) {
-
-        alert(
-          "⏰ 学習時間が終了しました！"
-        );
-
-      }
-
-    }
-
-
-    // ========================================================
-    // 保存されているタイマー状態を復元
-    // ========================================================
-
-    function restoreTimerStates() {
-
-      const saved =
-        loadTimerStates();
-
-
-      document
-        .querySelectorAll(
-          ".task-timer"
-        )
-        .forEach(
-          timerElement => {
-
-            const taskId =
-              timerElement.dataset.taskId;
-
-            const minutes =
-              Number(
-                timerElement.dataset.minutes
-              );
-
-            const savedTimer =
-              saved[taskId];
-
-
-            // ------------------------------------------------
-            // 保存データがない場合
-            // ------------------------------------------------
-
-            if (!savedTimer) {
-
-              timers[taskId] = {
-
-                remaining:
-                  minutes * 60,
-
-                endTime:
-                  null,
-
-                interval:
-                  null,
-
-                running:
-                  false
-
-              };
-
-              updateTimerDisplay(
-                taskId,
-                minutes * 60
-              );
-
-              updateTimerClass(
-                taskId
-              );
-
-              return;
-
-            }
-
-
-            // ------------------------------------------------
-            // 実行中だった場合
-            //
-            // ページ更新中に時間が経過しているので、
-            // 現在時刻から残り時間を再計算する。
-            // ------------------------------------------------
-
-            let remaining =
-              Number(
-                savedTimer.remaining
-              );
-
-
-            if (
-              savedTimer.running &&
-              savedTimer.endTime
-            ) {
-
-              remaining =
-                Math.ceil(
-                  (
-                    Number(
-                      savedTimer.endTime
-                    )
-                    -
-                    Date.now()
-                  ) / 1000
-                );
-
-            }
-
-
-            remaining =
-              Math.max(
-                0,
-                remaining
-              );
-
-
-            timers[taskId] = {
-
-              remaining:
-                remaining,
-
-              endTime:
-                null,
-
-              interval:
-                null,
-
-              running:
-                false
-
-            };
-
-
-            updateTimerDisplay(
-              taskId,
-              remaining
-            );
-
-
-            // ------------------------------------------------
-            // ページ更新中に終了していた場合
-            // ------------------------------------------------
-
-            if (
-              remaining <= 0
-            ) {
-
-              timers[taskId].remaining =
-                0;
-
-              updateTimerClass(
-                taskId
-              );
-
-              return;
-
-            }
-
-
-            // ------------------------------------------------
-            // 更新前に実行中だった場合
-            // ------------------------------------------------
-
-            if (
-              savedTimer.running
-            ) {
-
-              startTimer(
-                taskId,
-                minutes
-              );
-
-            } else {
-
-              updateTimerClass(
-                taskId
-              );
-
-            }
-
-          }
-        );
-
-    }
-
-
-    // ========================================================
-    // タスクチェック状態更新
-    //
-    // 既存APIをそのまま使用
-    // ========================================================
-
-    async function updateTask(
-      taskId,
-      completed
-    ) {
-
-      try {
-
-        const response =
-          await fetch(
-            "/study-task/" + taskId,
-            {
-
-              method: "PATCH",
-
-              headers: {
-                "Content-Type":
-                  "application/json"
-              },
-
-              body:
-                JSON.stringify({
-                  completed:
-                    completed
-                })
-
-            }
-          );
-
-
-        const result =
-          await response.json();
-
-
-        if (
-          !result.success
-        ) {
-
-          throw new Error(
-            result.message ||
-            "Task update failed"
-          );
-
-        }
-
-
-        // ----------------------------------------------------
-        // 見た目更新
-        // ----------------------------------------------------
-
-        const checkbox =
-          document.querySelector(
-            'input[data-task-id="' +
-            taskId +
-            '"]'
-          );
-
-
-        const title =
-          document.getElementById(
-            "task-title-" +
+          return document.getElementById(
+            "timer-" +
             taskId
           );
 
+        }
 
-        if (
-          checkbox &&
-          title
+
+        // =====================================================
+        // タイマー表示更新
+        // =====================================================
+
+        function updateTimerDisplay(
+          taskId,
+          seconds
+        ) {
+
+          const timer =
+            getTimerElement(
+              taskId
+            );
+
+
+          if (!timer) {
+            return;
+          }
+
+
+          const display =
+            timer.querySelector(
+              ".timer-display"
+            );
+
+
+          if (display) {
+
+            display.textContent =
+              formatSeconds(
+                seconds
+              );
+
+          }
+
+
+          const actual =
+            document.getElementById(
+              "actual-" +
+              taskId
+            );
+
+
+          if (actual) {
+
+            actual.textContent =
+              formatSeconds(
+                seconds
+              );
+
+          }
+
+
+          timer.dataset.actualSeconds =
+            seconds;
+        }
+
+
+        // =====================================================
+        // タイマー開始
+        // =====================================================
+
+        function startTimer(
+          taskId
+        ) {
+
+          /*
+           * すでに動いている場合は
+           * 二重起動しない
+           */
+          if (
+            timers[taskId]
+          ) {
+
+            return;
+
+          }
+
+
+          const timer =
+            getTimerElement(
+              taskId
+            );
+
+
+          if (!timer) {
+            return;
+          }
+
+
+          let actualSeconds =
+            Number(
+              timer.dataset.actualSeconds
+            ) || 0;
+
+
+          timers[taskId] = {
+
+            interval:
+              setInterval(
+                async () => {
+
+                  actualSeconds++;
+
+
+                  updateTimerDisplay(
+                    taskId,
+                    actualSeconds
+                  );
+
+
+                  /*
+                   * 10秒ごとにDB保存
+                   *
+                   * 毎秒APIを呼び出すと
+                   * リクエスト数が多くなるため、
+                   * 10秒ごとに保存する。
+                   */
+                  if (
+                    actualSeconds %
+                    10 ===
+                    0
+                  ) {
+
+                    await saveStudyTime(
+                      taskId,
+                      actualSeconds
+                    );
+
+                  }
+
+                },
+                1000
+              )
+
+          };
+
+        }
+
+
+        // =====================================================
+        // タイマー一時停止
+        // =====================================================
+
+        async function pauseTimer(
+          taskId
         ) {
 
           if (
-            checkbox.checked
+            !timers[taskId]
           ) {
 
-            title.classList.add(
-              "completed"
+            return;
+
+          }
+
+
+          clearInterval(
+            timers[taskId].interval
+          );
+
+
+          delete timers[
+            taskId
+          ];
+
+
+          const timer =
+            getTimerElement(
+              taskId
             );
 
-          } else {
 
-            title.classList.remove(
-              "completed"
+          if (!timer) {
+            return;
+          }
+
+
+          const actualSeconds =
+            Number(
+              timer.dataset.actualSeconds
+            ) || 0;
+
+
+          /*
+           * 一時停止時は
+           * 即座にDBへ保存
+           */
+          await saveStudyTime(
+            taskId,
+            actualSeconds
+          );
+
+        }
+
+
+        // =====================================================
+        // タイマーリセット
+        //
+        // DB上の実績時間も0にする
+        // =====================================================
+
+        async function resetTimer(
+          taskId
+        ) {
+
+          if (
+            timers[taskId]
+          ) {
+
+            clearInterval(
+              timers[taskId].interval
+            );
+
+
+            delete timers[
+              taskId
+            ];
+
+          }
+
+
+          updateTimerDisplay(
+            taskId,
+            0
+          );
+
+
+          await saveStudyTime(
+            taskId,
+            0
+          );
+
+        }
+
+
+        // =====================================================
+        // 学習時間をDBへ保存
+        // =====================================================
+
+        async function saveStudyTime(
+          taskId,
+          actualSeconds
+        ) {
+
+          try {
+
+            const response =
+              await fetch(
+                "/study-task/" +
+                taskId +
+                "/time",
+                {
+                  method:
+                    "PATCH",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json"
+                  },
+
+                  body:
+                    JSON.stringify({
+                      actual_seconds:
+                        actualSeconds
+                    })
+                }
+              );
+
+
+            const data =
+              await response.json();
+
+
+            if (
+              !data.success
+            ) {
+
+              console.error(
+                "Study time save failed:",
+                data.message
+              );
+
+            }
+
+          } catch (
+            error
+          ) {
+
+            console.error(
+              "Study time save error:",
+              error
             );
 
           }
@@ -2305,186 +2456,384 @@ function createChecklistHtml({
         }
 
 
-        updateProgress();
+        // =====================================================
+        // チェック状態更新
+        //
+        // 既存機能
+        // =====================================================
 
-
-      } catch (error) {
-
-        console.error(
-          error
-        );
-
-        alert(
-          "チェック状態の更新に失敗しました。"
-        );
-
-      }
-
-    }
-
-
-    // ========================================================
-    // 進捗更新
-    // ========================================================
-
-    function updateProgress() {
-
-      const checkboxes =
-        document.querySelectorAll(
-          'input[type="checkbox"][data-task-id]'
-        );
-
-
-      const completed =
-        Array.from(
-          checkboxes
-        )
-          .filter(
-            checkbox =>
-              checkbox.checked
-          )
-          .length;
-
-
-      const total =
-        checkboxes.length;
-
-
-      const completedCount =
-        document.getElementById(
-          "completedCount"
-        );
-
-
-      const totalCount =
-        document.getElementById(
-          "totalCount"
-        );
-
-
-      const progressValue =
-        document.getElementById(
-          "progressValue"
-        );
-
-
-      const completeMessage =
-        document.getElementById(
-          "completeMessage"
-        );
-
-
-      if (
-        completedCount
-      ) {
-
-        completedCount.textContent =
-          completed;
-
-      }
-
-
-      if (
-        totalCount
-      ) {
-
-        totalCount.textContent =
-          total;
-
-      }
-
-
-      if (
-        progressValue
-      ) {
-
-        const percentage =
-          total > 0
-            ? (
-                completed /
-                total
-              ) * 100
-            : 0;
-
-        progressValue.style.width =
-          percentage + "%";
-
-      }
-
-
-      if (
-        completeMessage
-      ) {
-
-        if (
-          total > 0 &&
-          completed === total
+        async function updateTask(
+          taskId,
+          completed
         ) {
 
-          completeMessage.style.display =
-            "block";
+          try {
 
-        } else {
+            const response =
+              await fetch(
+                "/study-task/" +
+                taskId,
+                {
+                  method:
+                    "PATCH",
 
-          completeMessage.style.display =
-            "none";
+                  headers: {
+                    "Content-Type":
+                      "application/json"
+                  },
 
-        }
+                  body:
+                    JSON.stringify({
+                      completed:
+                        completed
+                    })
+                }
+              );
 
-      }
 
-    }
+            const data =
+              await response.json();
 
 
-    // ========================================================
-    // 通知許可
-    //
-    // ユーザーがページを操作した際に許可を要求する。
-    // ========================================================
+            if (
+              !data.success
+            ) {
 
-    document.addEventListener(
-      "click",
-      () => {
+              console.error(
+                data.message
+              );
 
-        if (
-          "Notification" in window &&
-          Notification.permission ===
-            "default"
-        ) {
+              return;
 
-          Notification.requestPermission()
-            .catch(
-              () => {}
+            }
+
+
+            updateProgress();
+
+
+            const task =
+              document.querySelector(
+                '.task[data-task-id="' +
+                taskId +
+                '"]'
+              );
+
+
+            if (task) {
+
+              const title =
+                task.querySelector(
+                  ".task-title"
+                );
+
+
+              if (title) {
+
+                if (
+                  completed
+                ) {
+
+                  title.classList.add(
+                    "completed"
+                  );
+
+                } else {
+
+                  title.classList.remove(
+                    "completed"
+                  );
+
+                }
+
+              }
+
+            }
+
+          } catch (
+            error
+          ) {
+
+            console.error(
+              "Task update error:",
+              error
             );
 
+          }
+
         }
 
-      },
-      {
-        once: true
-      }
-    );
+
+        // =====================================================
+        // 進捗更新
+        // =====================================================
+
+        function updateProgress() {
+
+          const checkboxes =
+            document.querySelectorAll(
+              '#tasks input[type="checkbox"]'
+            );
 
 
-    // ========================================================
-    // ページ読み込み時
-    // ========================================================
+          let completedCount =
+            0;
 
-    document.addEventListener(
-      "DOMContentLoaded",
-      () => {
 
-        restoreTimerStates();
+          checkboxes.forEach(
+            checkbox => {
+
+              if (
+                checkbox.checked
+              ) {
+
+                completedCount++;
+
+              }
+
+            }
+          );
+
+
+          const totalCount =
+            checkboxes.length;
+
+
+          const completedElement =
+            document.getElementById(
+              "completedCount"
+            );
+
+
+          const totalElement =
+            document.getElementById(
+              "totalCount"
+            );
+
+
+          const progressValue =
+            document.getElementById(
+              "progressValue"
+            );
+
+
+          if (
+            completedElement
+          ) {
+
+            completedElement.textContent =
+              completedCount;
+
+          }
+
+
+          if (
+            totalElement
+          ) {
+
+            totalElement.textContent =
+              totalCount;
+
+          }
+
+
+          if (
+            progressValue
+          ) {
+
+            const percentage =
+              totalCount > 0
+                ? (
+                    completedCount /
+                    totalCount
+                  ) *
+                  100
+                : 0;
+
+
+            progressValue.style.width =
+              percentage +
+              "%";
+
+          }
+
+
+          const completeMessage =
+            document.getElementById(
+              "completeMessage"
+            );
+
+
+          if (
+            completeMessage
+          ) {
+
+            completeMessage.style.display =
+              (
+                totalCount > 0 &&
+                completedCount ===
+                  totalCount
+              )
+                ? "block"
+                : "none";
+
+          }
+
+        }
+
+
+        // =====================================================
+        // 秒数フォーマット
+        // =====================================================
+
+        function formatSeconds(
+          totalSeconds
+        ) {
+
+          const seconds =
+            Math.max(
+              0,
+              Math.floor(
+                Number(
+                  totalSeconds
+                ) || 0
+              )
+            );
+
+
+          const hours =
+            Math.floor(
+              seconds /
+              3600
+            );
+
+
+          const minutes =
+            Math.floor(
+              (
+                seconds %
+                3600
+              ) /
+              60
+            );
+
+
+          const secs =
+            seconds %
+            60;
+
+
+          if (
+            hours > 0
+          ) {
+
+            return [
+
+              String(hours)
+                .padStart(
+                  2,
+                  "0"
+                ),
+
+              String(minutes)
+                .padStart(
+                  2,
+                  "0"
+                ),
+
+              String(secs)
+                .padStart(
+                  2,
+                  "0"
+                )
+
+            ].join(":");
+
+          }
+
+
+          return [
+
+            String(minutes)
+              .padStart(
+                2,
+                "0"
+              ),
+
+            String(secs)
+              .padStart(
+                2,
+                "0"
+              )
+
+          ].join(":");
+
+        }
+
+
+        // =====================================================
+        // ページ読み込み時
+        // =====================================================
 
         updateProgress();
 
-      }
-    );
 
-  </script>
+        // =====================================================
+        // ページを閉じる・離れる前
+        //
+        // 通常は10秒ごと＋一時停止時に保存。
+        //
+        // 最後の数秒も保存するため、
+        // beforeunloadでも保存を試みる。
+        // =====================================================
 
-</body>
+        window.addEventListener(
+          "beforeunload",
+          () => {
 
-</html>
+            Object.keys(
+              timers
+            ).forEach(
+              taskId => {
+
+                const timer =
+                  getTimerElement(
+                    taskId
+                  );
+
+
+                if (!timer) {
+                  return;
+                }
+
+
+                const actualSeconds =
+                  Number(
+                    timer.dataset.actualSeconds
+                  ) || 0;
+
+
+                /*
+                 * beforeunloadでは
+                 * awaitを待てない可能性がある。
+                 *
+                 * そのため、基本的には
+                 * 10秒ごとの保存を利用する。
+                 */
+                saveStudyTime(
+                  taskId,
+                  actualSeconds
+                );
+
+              }
+            );
+
+          }
+        );
+
+      </script>
+
+    </body>
+
+    </html>
   `;
 }
