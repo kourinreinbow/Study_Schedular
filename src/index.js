@@ -298,6 +298,60 @@ export default {
         );
       }
 
+      // =======================================================
+      // GET /study-result/previous
+      //
+      // 日本時間基準で「前日」の学習結果を取得
+      //
+      // 例:
+      // 2026-08-10 にアクセス
+      //   ↓
+      // 2026-08-09 の結果を取得
+      // =======================================================
+      if (
+        request.method === "GET" &&
+        url.pathname === "/study-result/previous"
+      ) {
+        const now = new Date();
+
+        // 日本時間の日付を取得
+        const japanDate = new Intl.DateTimeFormat(
+          "en-CA",
+          {
+            timeZone: "Asia/Tokyo",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit"
+          }
+        ).format(now);
+
+        // YYYY-MM-DD をDateとして扱い、1日前にする
+        const previousDate = new Date(
+          `${japanDate}T00:00:00+09:00`
+        );
+
+        previousDate.setDate(
+          previousDate.getDate() - 1
+        );
+
+        const studyDate =
+          new Intl.DateTimeFormat(
+            "en-CA",
+            {
+              timeZone: "Asia/Tokyo",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit"
+            }
+          ).format(previousDate);
+
+        return await getStudyResult(
+          env.DB,
+          studyDate,
+          corsHeaders
+        );
+      }
+
 
       // =======================================================
       // GET /study-result/latest
